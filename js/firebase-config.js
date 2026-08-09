@@ -1,0 +1,1 @@
+const firebaseConfig={apiKey:"AIzaSyCaUhqi3yW9wX4Zf67J5p-hz3TS_mX-KV0",authDomain:"vitwar-d31c4.firebaseapp.com",projectId:"vitwar-d31c4",storageBucket:"vitwar-d31c4.firebasestorage.app",messagingSenderId:"594139254005",appId:"1:594139254005:web:44d7ac1a039cb8a40909bc"},VAPID_KEY="PASTE_YOUR_VAPID_KEY_HERE";
