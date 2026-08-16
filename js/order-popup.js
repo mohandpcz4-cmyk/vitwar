@@ -70,7 +70,7 @@ function ensureNewOrderPopupHost() {
       <div class="new-order-popup-overlay"></div>
       <div class="new-order-popup-box">
         <div class="new-order-popup-badge">
-          <img id="newOrderPopupGif" src="images/icons/emoji-bell.gif" alt="🔔" />
+          <img id="newOrderPopupGif" src="images/icons/wait.gif" alt="⏳" />
         </div>
         <span class="new-order-popup-tag" id="newOrderPopupType"></span>
         <h3 class="new-order-popup-title">طلب جديد!</h3>
