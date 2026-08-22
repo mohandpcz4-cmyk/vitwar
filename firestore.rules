@@ -1,0 +1,106 @@
+rules_version = '2';
+
+// ============================================================
+// قواعد أمان Firestore — فيتوار
+// ============================================================
+// ملحوظة مهمة: المشروع مكنش فيه ملف rules قبل كده، يعني غالبًا شغال
+// بقواعد افتراضية (Test mode مفتوحة بالكامل، أو Production مقفولة بالكامل).
+// الملف ده لازم يتنشر عشان:
+//  1) العميل العادي يقدر يشوف طلباته هو بس (My Account) — مش طلبات كل الناس.
+//  2) العميل العادي منعرفش يغيّر حالة الأوردر أو مستوى حسابه (Tier) — الأدمن بس.
+//  3. باقي الميزات القديمة (الشات، الإشعارات، التقييمات...) تفضل شغالة زي
+//     ما هي بالظبط، لأنها مبنية أصلًا من غير تسجيل دخول Firebase.
+//
+// النشر: firebase deploy --only firestore:rules
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // حساب أدمن أي فرع (الإيميل شكله vitwar{رقم الفرع}@vitwar.local، زي ما محدد في BRANCHES بالكود)
+    function isAnyAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.matches('^vitwar[0-9]+@vitwar[.]local$');
+    }
+
+    // حساب أدمن الفرع ده بالتحديد
+    function isBranchAdmin(branchId) {
+      return isSignedIn() && request.auth.token.email == ('vitwar' + branchId + '@vitwar.local');
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /branches/{branchId} {
+      // المنيو/العروض/حالة الفرع تتعرض للجميع، والتعديل للأدمن بس
+      allow read: if true;
+      allow write: if isBranchAdmin(branchId);
+
+      // ---------- الطلبات ----------
+      match /orders/{orderId} {
+        // العميل يقرا طلباته هو بس (My Account) — الأدمن يقرا كل طلبات فرعه
+        allow read: if isBranchAdmin(branchId) ||
+          (isSignedIn() && resource.data.customerUid == request.auth.uid);
+        // إنشاء أوردر مسموح للجميع (حتى الضيف من غير تسجيل دخول) زي النظام الحالي
+        allow create: if true;
+        // تغيير حالة الأوردر أو حذفه: الأدمن بس (مهم: العميل ميقدرش يغيّر حالة طلبه بنفسه)
+        allow update, delete: if isBranchAdmin(branchId);
+      }
+
+      // ---------- شات الدعم (بدون تسجيل دخول أصلًا في التصميم الحالي) ----------
+      match /chats/{chatId} {
+        allow read, write: if true;
+        match /messages/{messageId} {
+          allow read, write: if true;
+        }
+      }
+
+      // ---------- رسائل/إشعارات الأدمن العامة ----------
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if isBranchAdmin(branchId);
+      }
+
+      // ---------- حضور لحظي (كام واحد فاتح الموقع) ----------
+      match /presence/{sessionId} {
+        allow read, write: if true;
+      }
+
+      // ---------- توكنات إشعارات الجوال ----------
+      match /fcmTokens/{token} {
+        allow read: if isBranchAdmin(branchId);
+        allow write: if true;
+      }
+    }
+
+    // عداد كود الأوردر — لازم يتحدث من متصفح العميل مباشرة وقت الطلب
+    match /counters/{counterId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // التقييمات
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAnyAdmin();
+    }
+
+    // ---------- حسابات العملاء (My Account) ----------
+    match /customers/{uid} {
+      // صاحب الحساب يشوف بياناته، والأدمن يشوف كل العملاء (للإحصائيات ومستقبلًا لإدارة المستوى)
+      allow read: if isOwner(uid) || isAnyAdmin();
+      allow create: if isOwner(uid);
+      // صاحب الحساب يعدّل بياناته (الاسم مثلًا) لكن مش يقدر يغيّر مستوى حسابه (tier) بنفسه
+      allow update: if isAnyAdmin() ||
+        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier']));
+      allow delete: if false;
+    }
+  }
+}
