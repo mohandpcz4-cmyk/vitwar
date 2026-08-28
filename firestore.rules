@@ -1,0 +1,149 @@
+// ============================================================
+// Firestore Security Rules — Vitwar (نسخة كاملة جاهزة للّصق)
+// ============================================================
+// إزاي تستخدمها:
+// Firebase Console -> Firestore Database -> Rules -> امسح اللي موجود
+// والصق الملف ده كله مكانه -> Publish
+//
+// ⚠️ مهم قبل ما تنشرها على السيرفر الحي:
+// الملف ده مبني على قراءتي للكود بالكامل (كل db.collection() في المشروع)،
+// مش نسخة من الـ rules الحالية بتاعتك فعليًا (معنديش وصول ليها). قبل النشر:
+// 1) جرّبها في "Rules Playground" جوه Firebase Console الأول.
+// 2) بعد النشر افتح index.html و mohand.html وجرب: تصفح المنيو، تسجيل
+//    دخول، طلب أوردر، شات الدعم، لوحة الأدمن — وشوف مفيش حاجة بقت
+//    "Permission Denied" كانت شغالة قبل كده.
+//
+// إيميلات الأدمن الحالية (لو غيّرتها في js/firebase-init.js لازم تغيّرها هنا برضه):
+//   vitwar1@vitwar.local , vitwar5@vitwar.local
+// ============================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.token.email in [
+          'vitwar1@vitwar.local',
+          'vitwar5@vitwar.local'
+        ];
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------
+    // branches/{branchId}
+    // بيانات الفرع: المنيو (categories/products/offers/birthdays/
+    // addons)، حالة الفرع (مفتوح/مقفول)، الديليفري متاح ولا لأ...
+    // القراءة مفتوحة للجميع (المنيو لازم تظهر لأي زائر من غير تسجيل
+    // دخول)، الكتابة للأدمن بس.
+    // ---------------------------------------------------------
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      // الأوردرات: العميل (لازم يكون مسجل دخول) يعمل create لأوردر
+      // جديد، ويقدر يعدّل بس حقل receivedByCustomer في أوردره هو،
+      // الأدمن يقدر يعمل كل حاجة.
+      match /orders/{orderId} {
+        allow read: if isAdmin();
+        allow create: if isSignedIn();
+        allow update: if isAdmin()
+          || (
+            isSignedIn() &&
+            resource.data.customerUid == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedByCustomer'])
+          );
+        allow delete: if isAdmin();
+      }
+
+      // رسائل البرودكاست من الأدمن (تبويب "رسائل") — قراءة عامة،
+      // كتابة أدمن بس
+      match /messages/{msgId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      // شات الدعم: بيشتغل من غير تسجيل دخول أصلاً (زائر قبل ما
+      // يعمل حساب)، فمفيش owner uid نربط بيه — مفتوح للجميع
+      // (create/read/update)، الحذف للأدمن بس.
+      match /chats/{chatId} {
+        allow read, create, update: if true;
+        allow delete: if isAdmin();
+
+        match /messages/{msgId} {
+          allow read, create: if true;
+          allow update, delete: if isAdmin();
+        }
+      }
+
+      // حضور لحظي (هل فيه حد بيتصفح الموقع دلوقتي) — بيانات مؤقتة
+      // مالهاش قيمة حساسة
+      match /presence/{sessionId} {
+        allow read, write: if true;
+      }
+
+      // توكنات إشعارات الأدمن (Push notifications)
+      match /fcmTokens/{token} {
+        allow read, write: if true;
+      }
+    }
+
+    // ---------------------------------------------------------
+    // customers/{uid}
+    // بيانات حساب العميل نفسه (مستخدمة لو سجل بالرقم/الباسورد
+    // بدل جوجل)، + سجل طلباته + مفضلته
+    // ---------------------------------------------------------
+    match /customers/{uid} {
+      allow read, write: if isOwner(uid);
+      allow read: if isAdmin();
+
+      match /orders/{orderId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid);
+        allow update: if isAdmin()
+          || (
+            isOwner(uid) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedByCustomer', 'dismissedByCustomer'])
+          );
+        allow delete: if false;
+      }
+
+      match /favorites/{productId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+    // .count() من لوحة الأدمن (إجمالي عدد العملاء) محتاج list على
+    // الكولكشن نفسه، مش بس على المستندات الفرعية
+    match /customers/{document=**} {
+      allow list: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // reviews/{reviewId}
+    // تقييمات العملاء — قراءة عامة (بتظهر في صفحة المنتج/الموقع
+    // للجميع)، إضافة لأي حد (حتى لو مش مسجل دخول)، تعديل/حذف أدمن بس
+    // ---------------------------------------------------------
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // counters/{id}
+    // عداد كود الأوردر (#901 مثلاً) — لازم يتقرا ويتحدث وقت إنشاء
+    // أي أوردر جديد (العميل لازم يكون مسجل دخول عشان يطلب أصلاً)
+    // ---------------------------------------------------------
+    match /counters/{counterId} {
+      allow read, update: if isSignedIn();
+      allow create: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}
